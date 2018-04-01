@@ -1,0 +1,11 @@
+﻿
+Check file đã bị nhiễm chưa, bằng cách đọc section cuối cùng so sánh với
+shellcode
+đọc được khoảng cách -> OEP -> set EP = oEP, lưu lại entrypoint shellcode
+
+dùng entrypoint shellcode -> Xóa đoạn shellcode cũ
+
+Tính lại các giá trị:
+virtualsize
+sizeofimage
+entrypoint

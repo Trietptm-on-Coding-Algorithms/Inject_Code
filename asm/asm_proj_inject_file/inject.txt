@@ -1,0 +1,14 @@
+Lấy địa chỉ Kernel32.dll
+Check MZ & PE
+Tính giá trị các trường: ImageBaseKernel in file & in mem, ImageBase, ExportTableInMem, VAExportTable
+Tính địa chỉ ảo ENT, EOT, EAT
+Từ đó lấy địa chỉ func GetProcAddress
+Sử dụng GetProcAddress lấy địa chỉ Loadlibrary, VirtualProtect, dll_user32, MessageBoxA, CreateFile
+ReadFile, WriteFile, SetFilePointer, CloseHandle, lstrcmp, finfristfile, findnextfile
+Inject:
+CreateFile
+- Đọc hostsignature
+Kiểm tra MZ, PE
+- Đọc pesignature, Check signature shellcode, sectionAlignment, entrypoint, sizeofimage, numberofsection
+Mở rộng section:
+- NumberOfsection, VirtualSize, Characteristics, FileAlignment

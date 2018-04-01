@@ -1,0 +1,13 @@
+﻿Chỉnh sửa chế độ bảo vệ của mem, sử dụng kỹ thuật delta -> kernel32.dll
+kernel32.dll get được trên mem -> GetprocessAddress
+-> LoadLibrary -> user32.dll
+-> ...
+Tìm file -> lây nhiễm:
+check MZ, PE
+SectionAlignment, FileAlignment
+EntryPoint, imagesize, numberofSection
+thay đổi lastsection:
+	characteristics, rawsize, visualsize
+	newEP
+	ImageSize
+Ghi shellcode vào section cuối cùng

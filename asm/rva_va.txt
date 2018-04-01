@@ -1,0 +1,4 @@
+﻿RVA: Địa chỉ của một mục sau khi nó được tải vào bộ nhớ, imagebase - rva. rva của một mục gần như 
+luôn luôn khác với vị trí của nó trên file
+VA: địa chỉ ảo, tương tự như RVA ngoại trừ địa chỉ cơ sở của image file không bị trừ. Địa chỉ này được gọi là VA vì windows tạo ra
+một không gian VA khác biệt cho mỗi quá trình độc lập với bộ nhớ vật lý

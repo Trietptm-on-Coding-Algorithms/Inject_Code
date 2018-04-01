@@ -1,0 +1,69 @@
+.586p
+.model FLAT, stdcall
+Extern VirtualProtect@16:NEAR
+_DATA segment
+temp dword ?
+_DATA ends
+_TEXT segment
+START :
+push offset temp
+push 40h
+mov eax, offset END_VR
+mov ebx, offset START_VR
+sub eax, ebx
+push eax
+mov eax, offset START_VR
+push eax
+call VirtualProtect@16
+
+START_VR :
+
+call CodeStart
+CodeStart :
+pop ebp
+sub ebp, CodeStart; delta offset shit
+assume fs : nothing
+find_kernel32:
+push esi
+xor eax, eax
+mov eax, fs: [eax+30h]
+test eax, eax
+js find_kernel32_9x
+find_kernel32_nt:
+mov eax, [eax + 0ch]
+mov eax, [eax + 1ch]
+mov eax, [eax]
+mov eax, [eax+08h]
+jmp find_kernel32_finished
+find_kernel32_9x:
+mov eax, [eax+34h]
+lea eax, [eax+7ch]
+mov eax, [eax+3ch]
+find_kernel32_finished:
+pop esi
+END_VR :
+_TEXT ends
+END START
+
+call dta
+	dta:
+	pop ebp
+	sub ebp, dta
+	assume fs : nothing
+	find_kernel32:
+	push esi
+	xor eax, eax
+	mov eax, fs: [eax+30h]
+	test eax, eax
+	js find_kernel32_9x
+	find_kernel32_nt:
+	mov eax, [eax + 0ch]
+	mov eax, [eax + 1ch]
+	mov eax, [eax]
+	mov eax, [eax +08h]
+	jmp find_kernel32_finished
+	find_kernel32_9x:
+	mov eax, [eax + 34h]
+	lea eax, [eax + 7ch]
+	mov eax, [eax + 3ch]
+	find_kernel32_finished:	

